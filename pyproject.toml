@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bmt-ga-selection-reproduction"
 version = "0.1.0"
-description = "Reproducción en Python del paper BMT con benchmarks clásicos, CEC2017 y problemas de ingeniería."
+description = "Python reproduction of the BMT paper with classical benchmarks, CEC2017, and engineering problems."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

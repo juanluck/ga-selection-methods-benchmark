@@ -10,6 +10,6 @@ sudo apt install -y \
   build-essential
 
 echo
-echo "Dependencias del sistema instaladas."
-echo "Siguiente paso recomendado:"
+echo "System dependencies installed."
+echo "Recommended next step:"
 echo "  bash scripts/setup_venv.sh"

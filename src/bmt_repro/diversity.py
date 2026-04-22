@@ -20,12 +20,12 @@ def generate_diversity_and_footprints(outdir: Path, pop_sizes=(50, 100, 200), ge
                      tournament_size=cfg.tournament_size, crossover_probability=cfg.crossover_probability,
                      mutation_probability=cfg.mutation_probability, arithmetic_lambda=cfg.arithmetic_lambda,
                      bipolarity=cfg.bipolarity, fgts_ftour=cfg.fgts_ftour, rts_window=cfg.rts_window,
-                     association_size=cfg.association_size)
+                     association_size=cfg.association_size, collect_diagnostics=True)
         st = run_ga(de_jong, 'ST', pop_size, generations, seed=123 + pop_size,
                     tournament_size=cfg.tournament_size, crossover_probability=cfg.crossover_probability,
                     mutation_probability=cfg.mutation_probability, arithmetic_lambda=cfg.arithmetic_lambda,
                     bipolarity=cfg.bipolarity, fgts_ftour=cfg.fgts_ftour, rts_window=cfg.rts_window,
-                    association_size=cfg.association_size)
+                    association_size=cfg.association_size, collect_diagnostics=True)
 
         fig = plt.figure()
         plt.semilogy(range(1, generations + 1), bmt['phenotype_diversity'], label='BMT')
@@ -61,12 +61,12 @@ def generate_diversity_and_footprints(outdir: Path, pop_sizes=(50, 100, 200), ge
                           tournament_size=cfg.tournament_size, crossover_probability=cfg.crossover_probability,
                           mutation_probability=cfg.mutation_probability, arithmetic_lambda=cfg.arithmetic_lambda,
                           bipolarity=cfg.bipolarity, fgts_ftour=cfg.fgts_ftour, rts_window=cfg.rts_window,
-                          association_size=cfg.association_size)
+                          association_size=cfg.association_size, collect_diagnostics=True)
         st_axis = run_ga(axis, 'ST', pop_size, generations, seed=321 + pop_size,
                          tournament_size=cfg.tournament_size, crossover_probability=cfg.crossover_probability,
                          mutation_probability=cfg.mutation_probability, arithmetic_lambda=cfg.arithmetic_lambda,
                          bipolarity=cfg.bipolarity, fgts_ftour=cfg.fgts_ftour, rts_window=cfg.rts_window,
-                         association_size=cfg.association_size)
+                         association_size=cfg.association_size, collect_diagnostics=True)
 
         for label, data in [('BMT', bmt_axis), ('ST', st_axis)]:
             points = np.vstack(data['footprints'])
