@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from typing import List
+from functools import lru_cache
+from typing import Dict, List
 import numpy as np
 
 from .benchmarks import Problem
 
 
+@lru_cache(maxsize=1)
 def _import_cec2017():
     try:
         from cec2017.functions import all_functions  # type: ignore
@@ -43,3 +45,7 @@ def get_cec2017_bound_problems(dimension: int = 10, exclude_deleted_f2: bool = T
             )
         )
     return problems
+
+
+def get_cec2017_bound_problem_map(dimension: int = 10, exclude_deleted_f2: bool = True) -> Dict[str, Problem]:
+    return {problem.name: problem for problem in get_cec2017_bound_problems(dimension, exclude_deleted_f2)}

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Sequence, Any
 import numpy as np
 import pandas as pd
 
@@ -32,13 +32,13 @@ def make_paper_config() -> PaperConfig:
 
 
 def arithmetic_crossover(
-    p1: np.ndarray,
-    p2: np.ndarray,
+    parent_a: np.ndarray,
+    parent_b: np.ndarray,
     rng: np.random.Generator,
     lam: float,
 ) -> np.ndarray:
-    rand = rng.random(size=p1.shape)
-    return (p1 + p2) / 2.0 + lam * np.abs(p2 - p1) * (2.0 * rand - 1.0)
+    rand = rng.random(size=parent_a.shape)
+    return (parent_a + parent_b) / 2.0 + lam * np.abs(parent_b - parent_a) * (2.0 * rand - 1.0)
 
 
 def random_mutation(
@@ -46,10 +46,10 @@ def random_mutation(
     lower: np.ndarray,
     upper: np.ndarray,
     rng: np.random.Generator,
-    pm: float,
+    mutation_probability: float,
 ) -> np.ndarray:
     y = x.copy()
-    mask = rng.random(size=y.shape) < pm
+    mask = rng.random(size=y.shape) < mutation_probability
     if np.any(mask):
         y[mask] = rng.uniform(lower[mask], upper[mask])
     return y
@@ -57,8 +57,8 @@ def random_mutation(
 
 def evaluate_population(problem, population: np.ndarray) -> np.ndarray:
     if isinstance(problem, ConstrainedProblem):
-        return np.asarray([problem.penalized(ind) for ind in population], dtype=float)
-    return np.asarray([problem.evaluate(ind) for ind in population], dtype=float)
+        return np.asarray([problem.penalized(individual) for individual in population], dtype=float)
+    return np.asarray([problem.evaluate(individual) for individual in population], dtype=float)
 
 
 def run_ga(
@@ -76,10 +76,11 @@ def run_ga(
     fgts_ftour: float,
     rts_window: int,
     association_size: int,
+    collect_diagnostics: bool = False,
 ):
     rng = np.random.default_rng(seed)
     population = rng.uniform(problem.lower, problem.upper, size=(pop_size, problem.dimension))
-    population = np.asarray([problem.repair(ind) for ind in population], dtype=float)
+    population = np.asarray([problem.repair(individual) for individual in population], dtype=float)
     selector = make_selector(
         algorithm,
         rng,
@@ -91,44 +92,45 @@ def run_ga(
         minimize=problem.minimize,
     )
 
-    best_history = []
-    phenotype_diversity = []
-    genotype_diversity = []
-    footprints = []
-    baseline_pairwise = None
+    best_history: list[float] = []
+    phenotype_diversity: list[float] = []
+    genotype_diversity: list[float] = []
+    footprints: list[np.ndarray] = []
+    baseline_pairwise: float | None = None
 
     for _ in range(generations):
         fitness = evaluate_population(problem, population)
         selector.start_generation(population, fitness)
 
-        best_history.append(float(np.min(fitness) if problem.minimize else np.max(fitness)))
-        _, counts = np.unique(np.round(fitness, 12), return_counts=True)
-        phenotype_diversity.append(float(np.sum(counts == 1) / pop_size))
+        if collect_diagnostics:
+            best_history.append(float(np.min(fitness) if problem.minimize else np.max(fitness)))
+            _, counts = np.unique(np.round(fitness, 12), return_counts=True)
+            phenotype_diversity.append(float(np.sum(counts == 1) / pop_size))
 
-        if problem.dimension == 2:
-            diff = population[:, None, :] - population[None, :, :]
-            dist = np.sqrt(np.sum(diff ** 2, axis=2))
-            tri = dist[np.triu_indices(pop_size, k=1)]
-            mean_pairwise = float(np.mean(tri)) if tri.size else 0.0
-            if baseline_pairwise is None:
-                baseline_pairwise = max(mean_pairwise, 1e-12)
-            genotype_diversity.append(mean_pairwise / baseline_pairwise)
-            footprints.append(population.copy())
-        else:
-            genotype_diversity.append(np.nan)
+            if problem.dimension == 2:
+                diff = population[:, None, :] - population[None, :, :]
+                dist = np.sqrt(np.sum(diff ** 2, axis=2))
+                tri = dist[np.triu_indices(pop_size, k=1)]
+                mean_pairwise = float(np.mean(tri)) if tri.size else 0.0
+                if baseline_pairwise is None:
+                    baseline_pairwise = max(mean_pairwise, 1e-12)
+                genotype_diversity.append(mean_pairwise / baseline_pairwise)
+                footprints.append(population.copy())
+            else:
+                genotype_diversity.append(np.nan)
 
         children = []
         while len(children) < pop_size:
             if algorithm.upper() == "BMT":
-                i1, i2 = selector.select_pair()
+                parent_a_idx, parent_b_idx = selector.select_pair()
             else:
-                i1, i2 = selector.select_one(), selector.select_one()
+                parent_a_idx, parent_b_idx = selector.select_one(), selector.select_one()
 
-            p1, p2 = population[i1], population[i2]
+            parent_a, parent_b = population[parent_a_idx], population[parent_b_idx]
             if rng.random() < crossover_probability:
-                child = arithmetic_crossover(p1, p2, rng, arithmetic_lambda)
+                child = arithmetic_crossover(parent_a, parent_b, rng, arithmetic_lambda)
             else:
-                child = p1.copy()
+                child = parent_a.copy()
             child = random_mutation(child, problem.lower, problem.upper, rng, mutation_probability)
             child = problem.repair(child)
             children.append(child)
@@ -140,14 +142,20 @@ def run_ga(
     best_value = float(final_fitness[best_idx])
     best_solution = population[best_idx].copy()
 
-    return {
+    result: dict[str, Any] = {
         "best_value": best_value,
         "best_solution": best_solution,
-        "best_history": np.asarray(best_history, dtype=float),
-        "phenotype_diversity": np.asarray(phenotype_diversity, dtype=float),
-        "genotype_diversity": np.asarray(genotype_diversity, dtype=float),
-        "footprints": footprints,
     }
+    if collect_diagnostics:
+        result.update(
+            {
+                "best_history": np.asarray(best_history, dtype=float),
+                "phenotype_diversity": np.asarray(phenotype_diversity, dtype=float),
+                "genotype_diversity": np.asarray(genotype_diversity, dtype=float),
+                "footprints": footprints,
+            }
+        )
+    return result
 
 
 def make_run_seed(config: PaperConfig, problem_name: str, pop_size: int, run: int) -> int:
@@ -160,10 +168,10 @@ def run_suite(problems: Sequence, config: PaperConfig) -> pd.DataFrame:
         for problem in problems:
             for run in range(config.runs):
                 seed = make_run_seed(config, problem.name, pop_size, run)
-                for alg in config.algorithms:
+                for algorithm in config.algorithms:
                     result = run_ga(
                         problem,
-                        alg,
+                        algorithm,
                         pop_size,
                         config.generations,
                         seed,
@@ -175,13 +183,14 @@ def run_suite(problems: Sequence, config: PaperConfig) -> pd.DataFrame:
                         fgts_ftour=config.fgts_ftour,
                         rts_window=config.rts_window,
                         association_size=config.association_size,
+                        collect_diagnostics=False,
                     )
                     rows.append(
                         {
                             "problem": problem.name,
                             "population_size": pop_size,
                             "run": run,
-                            "algorithm": alg,
+                            "algorithm": algorithm,
                             "best_value": result["best_value"],
                         }
                     )

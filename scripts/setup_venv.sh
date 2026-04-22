@@ -7,6 +7,6 @@ python -m pip install --upgrade pip setuptools wheel
 python -m pip install -r requirements.txt
 
 echo
-echo "Entorno listo."
-echo "Activa el entorno con:"
+echo "Environment is ready."
+echo "Activate it with:"
 echo "  source .venv/bin/activate"

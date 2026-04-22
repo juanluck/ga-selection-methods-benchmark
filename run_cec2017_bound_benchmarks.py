@@ -4,8 +4,13 @@ import argparse
 from pathlib import Path
 import pandas as pd
 
+from src.bmt_repro.runtime import clamp_jobs, default_jobs, limit_library_threads
+limit_library_threads(1)
+
 from src.bmt_repro.cec2017_suite import get_cec2017_bound_problems
-from src.bmt_repro.ga import make_paper_config, run_ga, make_run_seed
+from src.bmt_repro.experiment_workers import CECTask, run_cec_task, worker_initializer
+from src.bmt_repro.ga import make_paper_config
+from src.bmt_repro.parallel import process_map
 from src.bmt_repro.stats import summarize_median_std, friedman_by_population, wilcoxon_by_population
 from src.bmt_repro.utils import ALGORITHM_NAMES
 
@@ -13,8 +18,9 @@ from src.bmt_repro.utils import ALGORITHM_NAMES
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Ejecuta el bloque CEC 2017 bound-constrained con el mismo GA base del paper. "
-            "Este es el camino recomendado para el bloque que en muchos artículos se llama CEC 2018."
+            "Run the CEC 2017 bound-constrained suite with the same GA backbone used by the paper. "
+            "This is the recommended Python path for the benchmark block often referred to as the 2018 "
+            "bound-constrained competition suite."
         )
     )
     parser.add_argument("--outdir", type=Path, default=Path("results/cec2017_bound"))
@@ -29,6 +35,7 @@ def main() -> None:
     parser.add_argument("--association-size", type=int, default=4)
     parser.add_argument("--include-f2", action="store_true")
     parser.add_argument("--seed0", type=int, default=12345)
+    parser.add_argument("--jobs", type=int, default=default_jobs(), help="Number of worker processes (recommended: 8, max suggested: 12).")
     args = parser.parse_args()
 
     cfg = make_paper_config()
@@ -44,51 +51,45 @@ def main() -> None:
         dimension=args.dimension,
         exclude_deleted_f2=not args.include_f2,
     )
+    jobs = clamp_jobs(args.jobs, default=default_jobs(), max_jobs=12)
 
-    args.outdir.mkdir(parents=True, exist_ok=True)
-
-    rows = []
+    tasks: list[CECTask] = []
     for pop_size in cfg.population_sizes:
         if args.generations is None:
             budget = args.evals_per_dim * args.dimension
             generations = max(1, budget // pop_size - 1)
         else:
             generations = args.generations
+            budget = pop_size * (generations + 1)
 
         for problem in problems:
             for run in range(cfg.runs):
-                seed = make_run_seed(cfg, problem.name, pop_size, run)
-                for alg in cfg.algorithms:
-                    result = run_ga(
-                        problem,
-                        alg,
-                        pop_size,
-                        generations,
-                        seed,
-                        tournament_size=cfg.tournament_size,
-                        crossover_probability=cfg.crossover_probability,
-                        mutation_probability=cfg.mutation_probability,
-                        arithmetic_lambda=cfg.arithmetic_lambda,
-                        bipolarity=cfg.bipolarity,
+                tasks.append(
+                    CECTask(
+                        problem_name=problem.name,
+                        dimension=args.dimension,
+                        exclude_deleted_f2=not args.include_f2,
+                        population_size=pop_size,
+                        run=run,
+                        generations=generations,
+                        evaluation_budget=budget,
+                        algorithms=cfg.algorithms,
+                        seed0=cfg.seed0,
                         fgts_ftour=cfg.fgts_ftour,
                         rts_window=cfg.rts_window,
                         association_size=cfg.association_size,
                     )
-                    rows.append(
-                        {
-                            "suite": "CEC2017_bound_constrained",
-                            "dimension": args.dimension,
-                            "population_size": pop_size,
-                            "generations": generations,
-                            "evaluation_budget": pop_size * (generations + 1),
-                            "problem": problem.name,
-                            "run": run,
-                            "algorithm": alg,
-                            "best_value": result["best_value"],
-                            "error_to_optimum": result["best_value"] - problem.optimum,
-                        }
-                    )
+                )
 
+    args.outdir.mkdir(parents=True, exist_ok=True)
+    batches = process_map(
+        run_cec_task,
+        tasks,
+        jobs=jobs,
+        initializer=worker_initializer if jobs > 1 else None,
+        progress_label="CEC tasks completed",
+    )
+    rows = [row for batch in batches for row in batch]
     raw = pd.DataFrame(rows)
     summary = summarize_median_std(raw)
     friedman = friedman_by_population(summary)
@@ -99,13 +100,13 @@ def main() -> None:
     friedman.to_csv(args.outdir / "friedman_by_population.csv", index=False)
     wilcoxon.to_csv(args.outdir / "wilcoxon_by_population.csv", index=False)
 
-    meta = pd.DataFrame(
+    metadata = pd.DataFrame(
         [
             {
-                "suite": "CEC2017 bound-constrained (reutilizado por la competición bound-constrained de 2018)",
+                "suite": "CEC2017 bound-constrained (also reused by the 2018 bound-constrained competition)",
                 "dimension": args.dimension,
                 "runs": args.runs,
-                "population_sizes": ",".join(str(v) for v in args.population_sizes),
+                "population_sizes": ",".join(str(value) for value in args.population_sizes),
                 "algorithms": ",".join(args.algorithms),
                 "generations_mode": "fixed" if args.generations is not None else "derived_from_evals_per_dim",
                 "generations": args.generations if args.generations is not None else "",
@@ -119,10 +120,11 @@ def main() -> None:
                 "rts_window": cfg.rts_window,
                 "association_size": cfg.association_size,
                 "seed0": cfg.seed0,
+                "jobs": jobs,
             }
         ]
     )
-    meta.to_csv(args.outdir / "run_metadata.csv", index=False)
+    metadata.to_csv(args.outdir / "run_metadata.csv", index=False)
 
     print("Wrote:")
     for name in [
