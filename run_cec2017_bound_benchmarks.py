@@ -26,7 +26,7 @@ def main() -> None:
     parser.add_argument("--algorithms", nargs="+", choices=ALGORITHM_NAMES, default=list(ALGORITHM_NAMES))
     parser.add_argument("--fgts-ftour", type=float, default=4.5)
     parser.add_argument("--rts-window", type=int, default=4)
-    parser.add_argument("--association-size", type=int, default=4)
+    parser.add_argument("--association-size", type=int, default=8)
     parser.add_argument("--include-f2", action="store_true")
     parser.add_argument("--seed0", type=int, default=12345)
     args = parser.parse_args()
